@@ -149,7 +149,7 @@ def save_license_info(license_key: str, organization: str, email: str):
         json.dump(license_data, f, ensure_ascii=False, indent=2)
 
 # ----------------------- ХМАРНА ТРАНСЛЯЦІЯ ЗВУКУ ------------------------
-CLOUD_SERVER_URL = "ws://localhost:8765"  # Локальний сервер для тестування
+CLOUD_SERVER_URL = "wss://web-production-6700.up.railway.app"  # Публічний сервер на Railway
 AUDIO_CHUNK_SIZE = 1024
 AUDIO_FORMAT = pyaudio.paInt16
 AUDIO_CHANNELS = 1
@@ -158,44 +158,47 @@ AUDIO_RATE = 44100
 class CloudAudioStreamer:
     """
     Клас для трансляції звуку в хмару.
+    Транслює інформацію про звуки дзвінків без захоплення з мікрофона.
     """
     
     def __init__(self):
         self.is_streaming = False
         self.websocket = None
-        self.audio_queue = queue.Queue()
-        self.stream = None
-        self.p = None
+        self.server_url = None
         
     def start_streaming(self, server_url: str = None):
         """
         Починає трансляцію звуку в хмару.
+        Просто підключається до сервера без захоплення з мікрофона.
         """
         if self.is_streaming:
             return
             
         try:
-            self.p = pyaudio.PyAudio()
-            self.stream = self.p.open(
-                format=AUDIO_FORMAT,
-                channels=AUDIO_CHANNELS,
-                rate=AUDIO_RATE,
-                input=True,
-                frames_per_buffer=AUDIO_CHUNK_SIZE,
-                stream_callback=self.audio_callback
-            )
-            
+            self.server_url = server_url or CLOUD_SERVER_URL
             self.is_streaming = True
+            
             # Запускаємо WebSocket клієнт в окремому потоці
             threading.Thread(target=self.websocket_client, 
-                           args=(server_url or CLOUD_SERVER_URL,), 
+                           args=(self.server_url,), 
                            daemon=True).start()
             
             logging.info("[CLOUD_AUDIO] Трансляція звуку розпочата")
+            messagebox.showinfo(
+                "Трансляція активна",
+                f"Підключено до сервера!\n\n"
+                f"URL: {self.server_url}\n\n"
+                f"Тепер всі звуки дзвінків будуть транслюватися в інтернет."
+            )
             return True
             
         except Exception as e:
             logging.error(f"[CLOUD_AUDIO] Помилка запуску трансляції: {e}")
+            self.is_streaming = False
+            messagebox.showerror(
+                "Помилка підключення",
+                f"Не вдалося підключитися до сервера:\n{e}"
+            )
             return False
     
     def stop_streaming(self):
@@ -204,64 +207,70 @@ class CloudAudioStreamer:
         """
         self.is_streaming = False
         
-        if self.stream:
-            self.stream.stop_stream()
-            self.stream.close()
-            self.stream = None
-            
-        if self.p:
-            self.p.terminate()
-            self.p = None
-            
         if self.websocket:
-            asyncio.run(self.websocket.close())
+            try:
+                asyncio.run(self.websocket.close())
+            except:
+                pass
             
         logging.info("[CLOUD_AUDIO] Трансляція звуку зупинена")
     
-    def audio_callback(self, in_data, frame_count, time_info, status):
+    def send_sound_event(self, sound_file: str, event_type: str = "bell"):
         """
-        Callback для захоплення аудіо.
+        Відправляє інформацію про відтворення звуку на сервер.
+        
+        Args:
+            sound_file: Назва або шлях до звукового файлу
+            event_type: Тип події (bell, alert, etc.)
         """
-        if self.is_streaming:
-            self.audio_queue.put(in_data)
-        return (None, pyaudio.paContinue)
+        if not self.is_streaming or not self.websocket:
+            return
+            
+        try:
+            message = json.dumps({
+                'type': 'sound_event',
+                'event': event_type,
+                'file': sound_file,
+                'timestamp': datetime.datetime.now().isoformat()
+            })
+            
+            # Створюємо новий event loop в окремому потоці
+            def send_in_thread():
+                try:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(self.websocket.send(message))
+                    loop.close()
+                except Exception as e:
+                    logging.error(f"[CLOUD_AUDIO] Помилка відправки в потоці: {e}")
+            
+            threading.Thread(target=send_in_thread, daemon=True).start()
+            
+            logging.info(f"[CLOUD_AUDIO] Відправлено звук: {sound_file}")
+            
+        except Exception as e:
+            logging.error(f"[CLOUD_AUDIO] Помилка відправки звуку: {e}")
     
     def websocket_client(self, server_url: str):
         """
-        WebSocket клієнт для відправки аудіо.
+        WebSocket клієнт для підключення до сервера.
         """
-        async def send_audio():
+        async def connect():
             try:
                 async with websockets.connect(server_url) as websocket:
                     self.websocket = websocket
                     logging.info("[CLOUD_AUDIO] Підключено до сервера")
                     
+                    # Очікуємо поки трансляція активна
                     while self.is_streaming:
-                        try:
-                            # Отримуємо аудіо дані з черги
-                            audio_data = self.audio_queue.get(timeout=0.1)
-                            
-                            # Кодуємо в base64 для передачі
-                            encoded_audio = base64.b64encode(audio_data).decode()
-                            
-                            # Відправляємо на сервер
-                            await websocket.send(json.dumps({
-                                'type': 'audio',
-                                'data': encoded_audio,
-                                'timestamp': datetime.datetime.now().isoformat()
-                            }))
-                            
-                        except queue.Empty:
-                            continue
-                        except Exception as e:
-                            logging.error(f"[CLOUD_AUDIO] Помилка відправки: {e}")
-                            break
-                            
+                        await asyncio.sleep(1)
+                        
             except Exception as e:
                 logging.error(f"[CLOUD_AUDIO] Помилка підключення: {e}")
+                self.is_streaming = False
         
         # Запускаємо async функцію
-        asyncio.run(send_audio())
+        asyncio.run(connect())
 
 class CloudAudioReceiver:
     """
@@ -1049,6 +1058,12 @@ class CloudBellApp:
             pygame.mixer.music.set_volume(0 if self.muted else self.current_volume)
             pygame.mixer.music.play()
             logging.info(f"[LESSON_SOUND] {event_type} урок {lesson_index}: {path}")
+            
+            # Транслюємо звук в хмару якщо трансляція активна
+            if self.cloud_streamer.is_streaming:
+                filename = os.path.basename(path)
+                self.cloud_streamer.send_sound_event(filename, event_type)
+                
         except Exception as e:
             logging.error(f"[LESSON_SOUND] Не вдалося відтворити ({lesson_index}, {event_type}): {e}")
 
@@ -1060,6 +1075,12 @@ class CloudBellApp:
             pygame.mixer.music.set_volume(0 if self.muted else self.current_volume)
             pygame.mixer.music.play()
             logging.info("[SPECIAL] Хвилина мовчання відтворена.")
+            
+            # Транслюємо звук в хмару
+            if self.cloud_streamer.is_streaming:
+                filename = os.path.basename(self.alert_sounds_cfg["silence"])
+                self.cloud_streamer.send_sound_event(filename, "silence")
+                
         except Exception as e:
             logging.error(f"[SPECIAL] Не вдалося відтворити: {e}")
 
@@ -1486,9 +1507,16 @@ class CloudBellApp:
         if status != self.air_alarm_active:
             self.air_alarm_active = status
             snd = self.air_alert_sound if status else self.air_clear_sound
+            sound_type = "air_alert" if status else "air_clear"
             if snd and not self.muted:
                 try:
                     self.air_alarm_channel.play(snd)
+                    
+                    # Транслюємо звук тривоги в хмару
+                    if self.cloud_streamer.is_streaming:
+                        filename = os.path.basename(self.alert_sounds_cfg[sound_type])
+                        self.cloud_streamer.send_sound_event(filename, sound_type)
+                        
                 except Exception as e:
                     logging.error(f"[ALARM_SOUND] {e}")
 

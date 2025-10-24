@@ -67,6 +67,25 @@ class AudioServer:
                             # Видаляємо відключених клієнтів
                             for client in disconnected:
                                 self.connected_clients.discard(client)
+                    
+                    elif data.get('type') == 'sound_event':
+                        # Обробляємо події відтворення звуків
+                        logging.info(f"🎵 Звук: {data.get('file')} ({data.get('event')})")
+                        
+                        # Розсилаємо всім підключеним клієнтам
+                        if self.connected_clients:
+                            message_to_send = json.dumps(data)
+                            disconnected = set()
+                            
+                            for client in self.connected_clients:
+                                try:
+                                    await client.send(message_to_send)
+                                except websockets.exceptions.ConnectionClosed:
+                                    disconnected.add(client)
+                            
+                            # Видаляємо відключених клієнтів
+                            for client in disconnected:
+                                self.connected_clients.discard(client)
                                 
                     elif data.get('type') == 'ping':
                         # Відповідаємо на ping
