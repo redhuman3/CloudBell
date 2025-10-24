@@ -68,9 +68,9 @@ class AudioServer:
                             for client in disconnected:
                                 self.connected_clients.discard(client)
                     
-                    elif data.get('type') == 'sound_event':
-                        # Обробляємо події відтворення звуків
-                        logging.info(f"🎵 Звук: {data.get('file')} ({data.get('event')})")
+                    elif data.get('type') == 'audio_stream':
+                        # Обробляємо потокове аудіо
+                        logging.info(f"🎵 Аудіо поток: {data.get('file')} ({data.get('event')}) - {len(data.get('data', ''))} байт")
                         
                         # Розсилаємо всім підключеним клієнтам
                         if self.connected_clients:

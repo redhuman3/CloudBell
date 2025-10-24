@@ -217,7 +217,7 @@ class CloudAudioStreamer:
     
     def send_sound_event(self, sound_file: str, event_type: str = "bell"):
         """
-        Відправляє інформацію про відтворення звуку на сервер.
+        Відправляє аудіо дані звукового файлу на сервер для трансляції.
         
         Args:
             sound_file: Назва або шлях до звукового файлу
@@ -227,10 +227,39 @@ class CloudAudioStreamer:
             return
             
         try:
+            # Читаємо аудіо файл як байти
+            sound_path = None
+            if os.path.exists(sound_file):
+                sound_path = sound_file
+            else:
+                # Шукаємо в різних місцях
+                possible_paths = [
+                    os.path.join(CONFIG_DIR, sound_file),
+                    os.path.join(os.path.dirname(__file__), sound_file),
+                    sound_file
+                ]
+                for path in possible_paths:
+                    if os.path.exists(path):
+                        sound_path = path
+                        break
+            
+            if not sound_path or not os.path.exists(sound_path):
+                logging.warning(f"[CLOUD_AUDIO] Файл не знайдено: {sound_file}")
+                return
+            
+            # Читаємо файл
+            with open(sound_path, 'rb') as f:
+                audio_data = f.read()
+            
+            # Кодуємо в base64
+            encoded_audio = base64.b64encode(audio_data).decode()
+            
+            # Відправляємо на сервер
             message = json.dumps({
-                'type': 'sound_event',
+                'type': 'audio_stream',
                 'event': event_type,
-                'file': sound_file,
+                'file': os.path.basename(sound_file),
+                'data': encoded_audio,
                 'timestamp': datetime.datetime.now().isoformat()
             })
             
@@ -246,7 +275,7 @@ class CloudAudioStreamer:
             
             threading.Thread(target=send_in_thread, daemon=True).start()
             
-            logging.info(f"[CLOUD_AUDIO] Відправлено звук: {sound_file}")
+            logging.info(f"[CLOUD_AUDIO] Відправлено аудіо поток: {sound_file} ({len(audio_data)} bytes)")
             
         except Exception as e:
             logging.error(f"[CLOUD_AUDIO] Помилка відправки звуку: {e}")
