@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudBell Web Client</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .subtitle {
+            color: #666;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .status.disconnected {
+            background: #fee;
+            color: #c33;
+        }
+        
+        .status.connected {
+            background: #efe;
+            color: #3c3;
+        }
+        
+        .status.connecting {
+            background: #ffe;
+            color: #cc3;
+        }
+        
+        .info {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .info-item {
+            margin: 8px 0;
+            font-size: 14px;
+            color: #555;
+        }
+        
+        .info-item strong {
+            color: #333;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-connect {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .btn-connect:hover {
+            background: #45a049;
+        }
+        
+        .btn-disconnect {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-disconnect:hover {
+            background: #da190b;
+        }
+        
+        .logs {
+            margin-top: 20px;
+            max-height: 200px;
+            overflow-y: auto;
+            background: #f9f9f9;
+            padding: 15px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        
+        .log-entry {
+            margin: 5px 0;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+        
+        .log-entry.success {
+            border-left-color: #4CAF50;
+        }
+        
+        .log-entry.error {
+            border-left-color: #f44336;
+        }
+        
+        .log-entry.play {
+            border-left-color: #ff9800;
+        }
+        
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+        
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 CloudBell</h1>
+        <p class="subtitle">Веб-клієнт для прослуховування дзвінків</p>
+        
+        <div id="status" class="status disconnected">
+            ❌ Не підключено
+        </div>
+        
+        <div class="info">
+            <div class="info-item">
+                <strong>Сервер:</strong> <span id="server-url">wss://web-production-6700.up.railway.app</span>
+            </div>
+            <div class="info-item">
+                <strong>Підключення:</strong> <span id="connection-count">0</span> клієнтів
+            </div>
+            <div class="info-item">
+                <strong>Останній звук:</strong> <span id="last-sound">-</span>
+            </div>
+        </div>
+        
+        <input type="text" id="server-input" placeholder="URL сервера" value="wss://web-production-6700.up.railway.app">
+        
+        <div class="controls">
+            <button class="btn-connect" onclick="connect()">Підключитися</button>
+            <button class="btn-disconnect" onclick="disconnect()">Відключитися</button>
+        </div>
+        
+        <div class="logs" id="logs"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let audio = new Audio();
+        
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+        
+        function updateStatus(status, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${status}`;
+            statusEl.textContent = text;
+        }
+        
+        function connect() {
+            const serverUrl = document.getElementById('server-input').value;
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Вже підключено!', 'error');
+                return;
+            }
+            
+            updateStatus('connecting', '⏳ Підключення...');
+            log(`Підключення до: ${serverUrl}`, 'info');
+            
+            try {
+                ws = new WebSocket(serverUrl);
+                
+                ws.onopen = function() {
+                    updateStatus('connected', '✅ Підключено');
+                    log('Підключено до сервера!', 'success');
+                };
+                
+                ws.onmessage = function(event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.type === 'sound_event') {
+                            log(`🔔 Звук: ${data.file} (${data.event})`, 'play');
+                            document.getElementById('last-sound').textContent = `${data.file} (${data.event})`;
+                            
+                            // Показуємо повідомлення
+                            if ('Notification' in window && Notification.permission === 'granted') {
+                                new Notification('Дзвінок', {
+                                    body: `${data.file}`,
+                                    icon: '🔔'
+                                });
+                            }
+                        } else if (data.type === 'pong') {
+                            log('Pong від сервера', 'success');
+                        }
+                    } catch (e) {
+                        log(`Помилка обробки повідомлення: ${e}`, 'error');
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    log(`Помилка з'єднання: ${error}`, 'error');
+                };
+                
+                ws.onclose = function() {
+                    updateStatus('disconnected', '❌ Не підключено');
+                    log('З\'єднання закрито', 'error');
+                };
+                
+            } catch (e) {
+                log(`Помилка створення з'єднання: ${e}`, 'error');
+                updateStatus('disconnected', '❌ Помилка');
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+            updateStatus('disconnected', '❌ Не підключено');
+            log('Відключено', 'info');
+        }
+        
+        // Запитати дозвіл на сповіщення
+        if ('Notification' in window && Notification.permission === 'default') {
+            Notification.requestPermission();
+        }
+        
+        // Автоматично підключитися при завантаженні
+        window.addEventListener('load', function() {
+            log('Клієнт готовий. Натисніть "Підключитися"', 'info');
+        });
+    </script>
+</body>
+</html>
+
