@@ -149,7 +149,7 @@ def save_license_info(license_key: str, organization: str, email: str):
         json.dump(license_data, f, ensure_ascii=False, indent=2)
 
 # ----------------------- ХМАРНА ТРАНСЛЯЦІЯ ЗВУКУ ------------------------
-CLOUD_SERVER_URL = "wss://web-production-6700.up.railway.app"  # Публічний сервер на Railway
+CLOUD_SERVER_URL = "wss://cloudbell.up.railway.app"  # Публічний сервер на Railway
 AUDIO_CHUNK_SIZE = 1024
 AUDIO_FORMAT = pyaudio.paInt16
 AUDIO_CHANNELS = 1
