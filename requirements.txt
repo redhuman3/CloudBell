@@ -1,0 +1,9 @@
+pygame==2.6.1
+pillow==12.0.0
+pystray==0.19.5
+plyer==2.1.0
+requests==2.32.3
+pyaudio==0.2.11
+websockets==12.0
+asyncio-mqtt==0.16.1
+

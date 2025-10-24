@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: cloudbell-websocket
+    env: python
+    buildCommand: pip install -r requirements_server.txt
+    startCommand: python websocket_server.py
+    envVars:
+      - key: PORT
+        value: 8765
+

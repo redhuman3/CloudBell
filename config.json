@@ -1,0 +1,33 @@
+{
+  "region": {
+    "oblast_id": "19",
+    "oblast_name": "Полтавська область",
+    "rayon_id": "108",
+    "rayon_name": "Миргородський район",
+    "community_id": "1077",
+    "community_name": "м. Миргород та Миргородська територіальна громада"
+  },
+    "school_logo": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\school_logo.png",
+    "mute_weekends": false,
+    "lesson_count": 8,
+    "lesson_label": "Урок",
+    "lesson_sounds": {
+        "1": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\bell1.mp3",
+        "2": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\bell2.mp3"
+    },
+    "alert_sounds": {
+        "air_alert": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\air_alert.mp3",
+        "air_clear": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\air_clear.mp3",
+        "silence": "C:\\Users\\User\\AppData\\Roaming\\SmartBell\\silence.mp3"
+    },
+    "schedules": {
+        "default": [
+            ["08:00", "08:45"],
+            ["08:55", "09:40"]
+        ],
+        "friday": [
+            ["08:00", "08:35"],
+            ["08:45", "09:20"]
+        ]
+    }
+}
