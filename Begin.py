@@ -44,6 +44,14 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 import io
 import queue
+try:
+    import sounddevice as sd
+    import numpy as np
+    AUDIO_CAPTURE_AVAILABLE = True
+except ImportError:
+    AUDIO_CAPTURE_AVAILABLE = False
+    sd = None
+    np = None
 
 def resource_path(rel_path: str) -> str:
     """
@@ -380,6 +388,77 @@ http_server_port = 8765
 ngrok_url = None
 ngrok_process = None
 audio_buffer = queue.Queue(maxsize=10)  # Буфер для потокового аудіо (максимум 10 файлів)
+audio_capture_stream = None  # Поток захоплення аудіо
+
+def audio_capture_callback(indata, frames, time_info, status):
+    """Callback функція для захоплення аудіо"""
+    if status:
+        logging.warning(f"[AUDIO_CAPTURE] Status: {status}")
+    
+    try:
+        # Конвертуємо float32 audio data в bytes (16-bit PCM)
+        audio_int16 = (indata * 32767).astype(np.int16)
+        audio_bytes = audio_int16.tobytes()
+        
+        # Додаємо до буфера
+        send_audio_to_stream(audio_bytes)
+    except Exception as e:
+        logging.error(f"[AUDIO_CAPTURE] Помилка: {e}")
+
+def start_audio_capture():
+    """Запускає захоплення аудіо з вихідного пристрою"""
+    global audio_capture_stream
+    
+    if not AUDIO_CAPTURE_AVAILABLE:
+        logging.warning("[AUDIO_CAPTURE] sounddevice не встановлено")
+        return False
+    
+    try:
+        # Знаходимо loopback пристрій (Stereo Mix або аналог)
+        devices = sd.query_devices()
+        device_id = None
+        
+        for i, device in enumerate(devices):
+            # Шукаємо default output device або loopback
+            if device['max_input_channels'] > 0 and 'mix' in device['name'].lower():
+                device_id = i
+                logging.info(f"[AUDIO_CAPTURE] Знайдено loopback: {device['name']}")
+                break
+        
+        if device_id is None:
+            # Використовуємо default output device
+            device_id = sd.default.device[1]  # Output device
+            logging.info(f"[AUDIO_CAPTURE] Використовується default output: {devices[device_id]['name']}")
+        
+        # Запускаємо захоплення
+        audio_capture_stream = sd.InputStream(
+            device=device_id,
+            channels=2,
+            samplerate=44100,
+            dtype='float32',
+            callback=audio_capture_callback,
+            blocksize=2048
+        )
+        
+        audio_capture_stream.start()
+        logging.info("[AUDIO_CAPTURE] Захоплення аудіо запущено")
+        return True
+        
+    except Exception as e:
+        logging.error(f"[AUDIO_CAPTURE] Помилка запуску: {e}")
+        return False
+
+def stop_audio_capture():
+    """Зупиняє захоплення аудіо"""
+    global audio_capture_stream
+    if audio_capture_stream:
+        try:
+            audio_capture_stream.stop()
+            audio_capture_stream.close()
+            audio_capture_stream = None
+            logging.info("[AUDIO_CAPTURE] Захоплення аудіо зупинено")
+        except Exception as e:
+            logging.error(f"[AUDIO_CAPTURE] Помилка зупинки: {e}")
 
 def send_audio_to_stream(audio_data: bytes):
     """Додає аудіо дані до потокового буфера"""
@@ -412,6 +491,10 @@ def start_http_server():
         thread.start()
         
         logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
+        
+        # Запускаємо захоплення аудіо
+        if AUDIO_CAPTURE_AVAILABLE:
+            start_audio_capture()
         
         # Спроба запустити ngrok для публічного доступу
         try:
@@ -475,6 +558,9 @@ def stop_http_server():
             logging.info("[HTTP_SERVER] Сервер зупинено")
         except:
             pass
+    
+    # Зупиняємо захоплення аудіо
+    stop_audio_capture()
 
 class CloudAudioStreamer:
     """
