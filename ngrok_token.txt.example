@@ -1,0 +1,14 @@
+ВАШ_AUTHTOKEN_ТУТ
+
+Інструкція:
+1. Зареєструйтесь на https://ngrok.com (безкоштовно)
+2. Отримайте authtoken в dashboard: https://dashboard.ngrok.com/get-started/your-authtoken
+3. Скопіюйте authtoken і вставте замість ВАШ_AUTHTOKEN_ТУТ
+4. Перейменуйте цей файл в ngrok_token.txt
+5. Запустіть програму - ngrok автоматично встановиться і налаштується!
+
+Приклад:
+2abc123def456ghi789jkl012mno345pqr678stu901vwx234yz
+
+Якщо не хочете використовувати ngrok, просто не створюйте файл ngrok_token.txt
+Програма працюватиме в локальній мережі (WIFI).

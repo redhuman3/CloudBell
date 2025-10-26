@@ -266,40 +266,37 @@ def start_http_server():
         
         # Спроба запустити ngrok для публічного доступу
         try:
-            import subprocess
-            # Перевіряємо чи є ngrok
-            result = subprocess.run(['ngrok', 'version'], capture_output=True, text=True)
-            if result.returncode == 0:
-                # Запускаємо ngrok в окремому процесі
-                ngrok_process = subprocess.Popen(
-                    ['ngrok', 'http', str(http_server_port)],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
-                )
+            from pyngrok import ngrok, conf
+            
+            # Шукаємо файл з ngrok authtoken
+            ngrok_token_file = os.path.join(os.path.dirname(__file__), 'ngrok_token.txt')
+            
+            if os.path.exists(ngrok_token_file):
+                with open(ngrok_token_file, 'r') as f:
+                    token = f.read().strip()
                 
-                # Даємо час на запуск
-                time.sleep(2)
-                
-                # Отримуємо публічний URL
-                try:
-                    import requests
-                    response = requests.get('http://localhost:4040/api/tunnels', timeout=2)
-                    if response.status_code == 200:
-                        tunnels = response.json().get('tunnels', [])
-                        if tunnels:
-                            ngrok_url = tunnels[0]['public_url']
-                            logging.info(f"[NGROK] Публічний URL: {ngrok_url}")
-                        else:
-                            logging.warning("[NGROK] Туннелі не знайдено")
-                except Exception as e:
-                    logging.warning(f"[NGROK] Не вдалося отримати URL: {e}")
+                if token:
+                    # Встановлюємо authtoken
+                    conf.get_default().auth_token = token
+                    
+                    # Запускаємо ngrok тунель
+                    tunnel = ngrok.connect(http_server_port, "http")
+                    ngrok_url = tunnel.public_url
+                    ngrok_process = tunnel  # Зберігаємо тунель для закриття
+                    
+                    logging.info(f"[NGROK] Публічний URL: {ngrok_url}")
+                else:
+                    logging.info("[NGROK] Token пустий в файлі ngrok_token.txt")
             else:
-                logging.info("[NGROK] ngrok не встановлено, використовується локальна мережа")
-        except FileNotFoundError:
-            logging.info("[NGROK] ngrok не знайдено, використовується локальна мережа")
+                logging.info(f"[NGROK] Файл ngrok_token.txt не знайдено (шлях: {ngrok_token_file})")
+                logging.info("[NGROK] Створіть файл ngrok_token.txt з вашим authtoken для публічного доступу")
+                
+        except ImportError:
+            logging.warning("[NGROK] pyngrok не встановлено, використовується локальна мережа")
         except Exception as e:
             logging.warning(f"[NGROK] Помилка: {e}")
+            import traceback
+            logging.debug(traceback.format_exc())
         
     except Exception as e:
         logging.error(f"[HTTP_SERVER] Помилка запуску: {e}")
@@ -307,18 +304,26 @@ def start_http_server():
 def stop_http_server():
     """Зупиняє HTTP сервер і ngrok"""
     global http_server, ngrok_process, ngrok_url
+    
+    # Зупиняємо ngrok тунель
+    if ngrok_process:
+        try:
+            from pyngrok import ngrok
+            ngrok.disconnect(ngrok_process.public_url)
+            ngrok_process = None
+            ngrok_url = None
+            logging.info("[NGROK] Тунель закрито")
+        except Exception as e:
+            logging.debug(f"[NGROK] Помилка закриття: {e}")
+            ngrok_process = None
+            ngrok_url = None
+    
+    # Зупиняємо HTTP сервер
     if http_server:
         try:
             http_server.shutdown()
             http_server = None
-        except:
-            pass
-    
-    if ngrok_process:
-        try:
-            ngrok_process.terminate()
-            ngrok_process = None
-            ngrok_url = None
+            logging.info("[HTTP_SERVER] Сервер зупинено")
         except:
             pass
 
