@@ -166,24 +166,25 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
         try:
             parsed_path = urlparse(self.path)
             
-            # CORS заголовки
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
-            
             if parsed_path.path == '/stream':
                 query_params = parse_qs(parsed_path.query)
                 filename = query_params.get('file', [''])[0]
                 
                 if not filename:
-                    self.send_error(400, "Missing file parameter")
+                    self.send_response(400)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(b'Missing file parameter')
                     return
                 
                 # Шукаємо файл
                 file_path = self.find_audio_file(filename)
                 
                 if not file_path or not os.path.exists(file_path):
-                    self.send_error(404, "File not found")
+                    self.send_response(404)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(b'File not found')
                     return
                 
                 try:
@@ -192,20 +193,36 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                     
                     mime_type = self.get_mime_type(filename)
                     
+                    # Відправляємо відповідь
                     self.send_response(200)
                     self.send_header('Content-Type', mime_type)
                     self.send_header('Content-Length', str(len(audio_data)))
                     self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                    self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                     self.end_headers()
                     self.wfile.write(audio_data)
                     
                 except Exception as e:
-                    self.send_error(500, str(e))
+                    self.send_response(500)
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.end_headers()
+                    self.wfile.write(str(e).encode())
             else:
-                self.send_error(404, "Not Found")
+                self.send_response(404)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(b'Not Found')
                 
         except Exception as e:
-            self.send_error(500, str(e))
+            try:
+                self.send_response(500)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(str(e).encode())
+            except:
+                pass
     
     def find_audio_file(self, filename):
         search_paths = [
@@ -222,6 +239,15 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
         ext = os.path.splitext(filename)[1].lower()
         mime_types = {'.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg'}
         return mime_types.get(ext, 'audio/mpeg')
+    
+    def do_OPTIONS(self):
+        """Обробляє OPTIONS запити для CORS"""
+        self.send_response(200)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, OPTIONS')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Max-Age', '86400')
+        self.end_headers()
     
     def log_message(self, format, *args):
         pass
