@@ -240,24 +240,38 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                         self.send_header('X-Content-Type-Options', 'nosniff')
                         self.end_headers()
                         
-                        # Відправляємо MP3 заголовок
+                        # Потоковий відправка аудіо
                         try:
+                            chunk_count = 0
+                            empty_count = 0
                             while True:
                                 try:
                                     # Отримуємо аудіо з буфера (timeout 0.1 секунди)
                                     audio_chunk = audio_buffer.get(timeout=0.1)
+                                    empty_count = 0  # Скидаємо лічильник
                                     if audio_chunk:
-                                        logging.info(f"[STREAM] Відправлено {len(audio_chunk)} байт аудіо")
-                                        self.wfile.write(audio_chunk)
-                                        self.wfile.flush()
+                                        chunk_count += 1
+                                        if chunk_count % 50 == 0:  # Логуємо кожні 50 чанків
+                                            logging.info(f"[STREAM] Відправлено {chunk_count} чанків, останній: {len(audio_chunk)} байт")
+                                        try:
+                                            self.wfile.write(audio_chunk)
+                                            self.wfile.flush()
+                                        except Exception as write_error:
+                                            logging.info(f"[STREAM] Помилка запису: {write_error}")
+                                            break
                                 except queue.Empty:
-                                    # Буфер порожній, відправляємо мінімальну тишаву
+                                    empty_count += 1
+                                    if empty_count == 100:  # Логуємо кожні 100 порожніх перевірок
+                                        logging.debug(f"[STREAM] Буфер порожній, чекаємо аудіо...")
+                                        empty_count = 0
                                     # Короткий біт тиші для підтримки з'єднання
                                     time.sleep(0.01)
                                     pass
                         except Exception as e:
                             # Зв'язок розірвано
                             logging.info(f"[STREAM] З'єднання розірвано: {e}")
+                            import traceback
+                            logging.debug(traceback.format_exc())
                             pass
                             
                 except Exception as e:
@@ -500,26 +514,32 @@ def start_audio_capture():
         # Шукаємо WASAPI loopback пристрій
         for i, device in enumerate(devices):
             # WASAPI loopback показується як input device
-            if 'wasapi' in device['hostapi'].lower() and device['max_input_channels'] > 0:
+            hostapi_name = str(device.get('hostapi', '')).lower()
+            if 'wasapi' in hostapi_name and device['max_input_channels'] > 0:
                 # Це loopback пристрій
                 device_id = i
                 logging.info(f"[AUDIO_CAPTURE] Знайдено WASAPI loopback: {device['name']}")
                 break
         
         if device_id is None:
-            # Якщо не знайдено WASAPI, пробуємо знайти будь-який input з loopback
+            # Шукаємо "Стерео микшер" або аналогічний loopback пристрій
             for i, device in enumerate(devices):
-                if device['max_input_channels'] >= 2:
-                    # Пробуємо використати як loopback
+                device_name_lower = device['name'].lower()
+                # Перевіряємо чи це loopback пристрій
+                if (device['max_input_channels'] >= 2 and 
+                    ('mix' in device_name_lower or 'stereo' in device_name_lower or 
+                     'loopback' in device_name_lower or 'вихід' in device_name_lower)):
                     try:
-                        # Тестуємо чи це loopback
+                        # Тестуємо чи працює
+                        logging.info(f"[AUDIO_CAPTURE] Тестуємо пристрій: {device['name']}")
                         test_stream = sd.InputStream(device=i, channels=2, samplerate=44100)
                         test_stream.stop()
                         test_stream.close()
                         device_id = i
                         logging.info(f"[AUDIO_CAPTURE] Знайдено loopback пристрій: {device['name']}")
                         break
-                    except:
+                    except Exception as e:
+                        logging.debug(f"[AUDIO_CAPTURE] Пристрій {device['name']} не підійшов: {e}")
                         continue
         
         if device_id is None:
