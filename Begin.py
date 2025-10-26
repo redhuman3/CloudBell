@@ -209,6 +209,67 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                     self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     self.wfile.write(str(e).encode())
+            elif parsed_path.path == '/':
+                # Головна сторінка з інформацією
+                html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudBell Audio Stream</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+        }
+        .container {
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        }
+        h1 { text-align: center; }
+        .info { background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 20px 0; }
+        .example { background: #000; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        a { color: #ffd700; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔔 CloudBell Audio Stream</h1>
+        <div class="info">
+            <h3>Як використовувати:</h3>
+            <ol>
+                <li>Слухайте дзвінки на сторінці: <a href="https://raw.githubusercontent.com/redhuman3/CloudBell/main/cloudbell_audio.html" target="_blank">cloudbell_audio.html</a></li>
+                <li>Або відкрийте аудіо напряму через URL:</li>
+            </ol>
+        </div>
+        <div class="example">
+            <strong>Формат URL для аудіо файлів:</strong><br>
+            https://ваш-ngrok-url.ngrok-free.app/stream?file=bell_start.mp3<br><br>
+            
+            <strong>Доступні файли:</strong><br>
+            <a href="/stream?file=bell_start.mp3">bell_start.mp3</a><br>
+            <a href="/stream?file=bell_end.mp3">bell_end.mp3</a><br>
+            <a href="/stream?file=air_alert.mp3">air_alert.mp3</a><br>
+            <a href="/stream?file=air_clear.mp3">air_clear.mp3</a><br>
+        </div>
+    </div>
+</body>
+</html>
+                """
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/html; charset=utf-8')
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.end_headers()
+                self.wfile.write(html.encode('utf-8'))
             else:
                 self.send_response(404)
                 self.send_header('Access-Control-Allow-Origin', '*')
