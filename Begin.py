@@ -263,8 +263,13 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     logging.error(f"Помилка потокового стріму: {e}")
             elif parsed_path.path == '/':
+                # Отримуємо ngrok URL
+                current_url = ngrok_url if ngrok_url else f"http://{get_local_ip()}:{http_server_port}"
+                playlist_url = f"{current_url}/live.m3u"
+                stream_url = f"{current_url}/live"
+                
                 # Головна сторінка з потоковим плеєром
-                html = """
+                html = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -272,28 +277,77 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CloudBell Audio Stream</title>
     <style>
-        body {
+        body {{
             font-family: Arial, sans-serif;
             max-width: 800px;
             margin: 50px auto;
             padding: 20px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
-        }
-        .container {
+        }}
+        .container {{
             background: rgba(255,255,255,0.1);
             backdrop-filter: blur(10px);
             border-radius: 20px;
             padding: 30px;
             box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
-        }
-        h1 { text-align: center; }
-        .player { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center; }
-        audio { width: 100%; }
-        .info { background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 20px 0; }
-        .status { text-align: center; font-size: 18px; margin: 10px 0; }
-        a { color: #ffd700; text-decoration: none; }
-        a:hover { text-decoration: underline; }
+        }}
+        h1 {{ text-align: center; }}
+        .player {{
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: center;
+        }}
+        audio {{ width: 100%; }}
+        .info {{
+            background: rgba(255,255,255,0.2);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+        }}
+        .links {{
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin: 15px 0;
+        }}
+        .link-item {{
+            margin: 10px 0;
+            padding: 10px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }}
+        .link-url {{
+            flex: 1;
+            margin-right: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            color: #ffd700;
+        }}
+        .copy-btn {{
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+        }}
+        .copy-btn:hover {{
+            background: #45a049;
+        }}
+        .copy-btn:active {{
+            background: #3d8b40;
+        }}
+        .status {{ text-align: center; font-size: 18px; margin: 10px 0; }}
+        a {{ color: #ffd700; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
@@ -305,9 +359,16 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                 <source src="/live" type="audio/mpeg">
                 Ваш браузер не підтримує аудіо поток.
             </audio>
-            <div style="margin-top: 10px; font-size: 14px;">
-                <a href="/live.m3u">Відкрити в плеєрі</a> | 
-                <a href="/live">MP3 URL</a>
+        </div>
+        <div class="links">
+            <h3 style="margin-top: 0;">🔗 Посилання для стріму:</h3>
+            <div class="link-item">
+                <span class="link-url" id="playlistUrl">{playlist_url}</span>
+                <button class="copy-btn" onclick="copyToClipboard('playlistUrl')">📋 Копіювати</button>
+            </div>
+            <div class="link-item">
+                <span class="link-url" id="streamUrl">{stream_url}</span>
+                <button class="copy-btn" onclick="copyToClipboard('streamUrl')">📋 Копіювати</button>
             </div>
         </div>
         <div class="info">
@@ -317,9 +378,27 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
     </div>
     <script>
         const audio = document.getElementById('streamPlayer');
-        audio.addEventListener('error', function() {
+        audio.addEventListener('error', function() {{
             console.log('Помилка завантаження потоку');
-        });
+        }});
+        
+        function copyToClipboard(elementId) {{
+            const element = document.getElementById(elementId);
+            const text = element.textContent;
+            navigator.clipboard.writeText(text).then(function() {{
+                // Змінюємо текст кнопки
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✅ Скопійовано!';
+                btn.style.background = '#45a049';
+                setTimeout(function() {{
+                    btn.textContent = originalText;
+                    btn.style.background = '#4CAF50';
+                }}, 2000);
+            }}).catch(function(err) {{
+                console.error('Помилка копіювання:', err);
+            }});
+        }}
     </script>
 </body>
 </html>
@@ -477,7 +556,7 @@ def start_http_server():
         return
     
     try:
-        server_address = ('0.0.0.0', http_server_port)
+        server_address = ('localhost', http_server_port)
         http_server = HTTPServer(server_address, AudioStreamHandler)
         
         def run_server():
@@ -596,17 +675,22 @@ class CloudAudioStreamer:
             # Формуємо URL для аудіо
             if ngrok_url:
                 audio_url = f"{ngrok_url}"
+                playlist_url = f"{ngrok_url}/live.m3u"
+                stream_url = f"{ngrok_url}/live"
             else:
                 local_ip = get_local_ip()
                 audio_url = f"http://{local_ip}:{http_server_port}"
+                playlist_url = f"http://{local_ip}:{http_server_port}/live.m3u"
+                stream_url = f"http://{local_ip}:{http_server_port}/live"
             
             logging.info("[CLOUD_AUDIO] Трансляція звуку розпочата")
             messagebox.showinfo(
                 "Трансляція активна",
-                f"Підключено до сервера!\n\n"
-                f"WebSocket: {self.server_url}\n"
-                f"HTTP Audio: {audio_url}\n"
-                f"{'✅ Ngrok активний - доступно в інтернеті!' if ngrok_url else '⚠️ Локальна мережа - лише в межах WiFi'}\n\n"
+                f"✅ Трансляція активна!\n\n"
+                f"{'🌐 Доступно в інтернеті через ngrok:' if ngrok_url else '⚠️ Локальна мережа (лише в межах WiFi):'}\n"
+                f"{audio_url}\n\n"
+                f"📻 Плейлист: {playlist_url}\n"
+                f"🎵 Прямий MP3: {stream_url}\n\n"
                 f"Тепер всі звуки дзвінків будуть транслюватися."
             )
             return True
@@ -672,9 +756,6 @@ class CloudAudioStreamer:
             # Читаємо файл
             with open(sound_path, 'rb') as f:
                 audio_data = f.read()
-            
-            # Додаємо аудіо до потокового буфера
-            send_audio_to_stream(audio_data)
             
             # Отримуємо розмір файлу
             file_size = len(audio_data)
