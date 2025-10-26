@@ -224,6 +224,7 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                         self.wfile.write(m3u_content.encode('utf-8'))
                     else:
                         # Потоковий MP3 стрім
+                        logging.info("[STREAM] Новий клієнт підключився до /live")
                         self.send_response(200)
                         self.send_header('Content-Type', 'audio/mpeg')
                         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
@@ -231,29 +232,24 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                         self.send_header('X-Content-Type-Options', 'nosniff')
                         self.end_headers()
                         
-                        # Відправляємо тишаву як фонове звучання
-                        silence = b'\xff\xf3\xe4\xc4\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01'
-                        silence = silence * 1024  # Більше тиші
-                        
-                        # Відправляємо 1 секунду тиші на старті
-                        for _ in range(100):
-                            self.wfile.write(silence)
-                            self.wfile.flush()
-                        
-                        # Тепер слухаємо буфер на аудіо
+                        # Відправляємо MP3 заголовок
                         try:
                             while True:
                                 try:
                                     # Отримуємо аудіо з буфера (timeout 0.1 секунди)
                                     audio_chunk = audio_buffer.get(timeout=0.1)
                                     if audio_chunk:
+                                        logging.info(f"[STREAM] Відправлено {len(audio_chunk)} байт аудіо")
                                         self.wfile.write(audio_chunk)
                                         self.wfile.flush()
                                 except queue.Empty:
-                                    # Буфер порожній, продовжуємо слухати
+                                    # Буфер порожній, відправляємо мінімальну тишаву
+                                    # Короткий біт тиші для підтримки з'єднання
+                                    time.sleep(0.01)
                                     pass
-                        except:
+                        except Exception as e:
                             # Зв'язок розірвано
+                            logging.info(f"[STREAM] З'єднання розірвано: {e}")
                             pass
                             
                 except Exception as e:
@@ -383,14 +379,16 @@ http_server = None
 http_server_port = 8765
 ngrok_url = None
 ngrok_process = None
-audio_buffer = queue.Queue()  # Буфер для потокового аудіо
+audio_buffer = queue.Queue(maxsize=10)  # Буфер для потокового аудіо (максимум 10 файлів)
 
 def send_audio_to_stream(audio_data: bytes):
     """Додає аудіо дані до потокового буфера"""
     global audio_buffer
     try:
         audio_buffer.put(audio_data, block=False)
-    except:
+        logging.info(f"[STREAM] Додано до буфера: {len(audio_data)} байт")
+    except queue.Full:
+        logging.warning("[STREAM] Буфер переповнений")
         pass  # Буфер переповнений, пропускаємо
 
 def start_http_server():
