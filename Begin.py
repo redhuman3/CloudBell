@@ -256,12 +256,14 @@ class CloudAudioStreamer:
             
             # Перевіряємо розмір файлу (WebSocket має ліміт ~64KB)
             if file_size > 50000:  # 50KB
-                logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо лише назву")
-                # Відправляємо лише назву файлу
+                logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо URL")
+                # Відправляємо URL для програвання через HTTP
+                audio_url = f"http://localhost:8765/stream?file={os.path.basename(sound_file)}"
                 message = json.dumps({
-                    'type': 'audio_event',
+                    'type': 'audio_url',
                     'event': event_type,
                     'file': os.path.basename(sound_file),
+                    'url': audio_url,
                     'timestamp': datetime.datetime.now().isoformat()
                 })
             else:
