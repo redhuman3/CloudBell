@@ -510,9 +510,10 @@ def start_audio_capture():
             logging.info(f"[AUDIO_CAPTURE] Використовується default output: {devices[device_id]['name']}")
         
         # Запускаємо захоплення
+        # Використовуємо моноканал (1) для сумісності
         audio_capture_stream = sd.InputStream(
             device=device_id,
-            channels=2,
+            channels=1,
             samplerate=44100,
             dtype='float32',
             callback=audio_capture_callback,
@@ -556,7 +557,8 @@ def start_http_server():
         return
     
     try:
-        server_address = ('localhost', http_server_port)
+        # Використовуємо 'localhost' для IPv4 та IPv6
+        server_address = ('127.0.0.1', http_server_port)
         http_server = HTTPServer(server_address, AudioStreamHandler)
         
         def run_server():
@@ -590,8 +592,8 @@ def start_http_server():
                     # Встановлюємо authtoken
                     conf.get_default().auth_token = token
                     
-                    # Запускаємо ngrok тунель
-                    tunnel = ngrok.connect(http_server_port, "http")
+                    # Запускаємо ngrok тунель на 127.0.0.1 (IPv4)
+                    tunnel = ngrok.connect(f"127.0.0.1:{http_server_port}", "http")
                     ngrok_url = tunnel.public_url
                     ngrok_process = tunnel  # Зберігаємо тунель для закриття
                     
