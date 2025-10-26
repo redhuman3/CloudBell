@@ -529,35 +529,28 @@ def start_audio_capture():
                 if (device['max_input_channels'] >= 2 and 
                     ('mix' in device_name_lower or 'stereo' in device_name_lower or 
                      'loopback' in device_name_lower or 'вихід' in device_name_lower)):
-                    try:
-                        # Тестуємо чи працює
-                        logging.info(f"[AUDIO_CAPTURE] Тестуємо пристрій: {device['name']}")
-                        test_stream = sd.InputStream(device=i, channels=2, samplerate=44100)
-                        test_stream.stop()
-                        test_stream.close()
-                        device_id = i
-                        logging.info(f"[AUDIO_CAPTURE] Знайдено loopback пристрій: {device['name']}")
-                        break
-                    except Exception as e:
-                        logging.debug(f"[AUDIO_CAPTURE] Пристрій {device['name']} не підійшов: {e}")
-                        continue
+                    # Пробуємо безпосередньо використовувати пристрій без тесту
+                    device_id = i
+                    logging.info(f"[AUDIO_CAPTURE] Знайдено потенційний loopback пристрій: {device['name']}")
+                    break
         
         if device_id is None:
             logging.error("[AUDIO_CAPTURE] Не вдалося знайти loopback пристрій")
             return False
         
-        # Запускаємо захоплення стерео
+        # Запускаємо захоплення стерео з NOT blocking mode
         audio_capture_stream = sd.InputStream(
             device=device_id,
             channels=2,  # Стерео
             samplerate=44100,
             dtype='float32',
             callback=audio_capture_callback,
-            blocksize=2048
+            blocksize=2048,
+            latency='low'
         )
         
         audio_capture_stream.start()
-        logging.info("[AUDIO_CAPTURE] Захоплення аудіо запущено")
+        logging.info(f"[AUDIO_CAPTURE] Захоплення аудіо запущено на пристрої {device_id}")
         return True
         
     except Exception as e:
