@@ -1090,8 +1090,8 @@ class CloudBellApp:
             
             # Транслюємо звук в хмару якщо трансляція активна
             if self.cloud_streamer.is_streaming:
-                filename = os.path.basename(path)
-                self.cloud_streamer.send_sound_event(filename, event_type)
+                # Передаємо повний шлях до файлу
+                self.cloud_streamer.send_sound_event(path, event_type)
                 
         except Exception as e:
             logging.error(f"[LESSON_SOUND] Не вдалося відтворити ({lesson_index}, {event_type}): {e}")
@@ -1100,15 +1100,16 @@ class CloudBellApp:
         if self.mute_weekends and datetime.datetime.today().weekday() >= 5:
             return
         try:
-            pygame.mixer.music.load(self.alert_sounds_cfg["silence"])
+            path = self.alert_sounds_cfg["silence"]
+            pygame.mixer.music.load(path)
             pygame.mixer.music.set_volume(0 if self.muted else self.current_volume)
             pygame.mixer.music.play()
             logging.info("[SPECIAL] Хвилина мовчання відтворена.")
             
             # Транслюємо звук в хмару
             if self.cloud_streamer.is_streaming:
-                filename = os.path.basename(self.alert_sounds_cfg["silence"])
-                self.cloud_streamer.send_sound_event(filename, "silence")
+                # Передаємо повний шлях до файлу
+                self.cloud_streamer.send_sound_event(path, "silence")
                 
         except Exception as e:
             logging.error(f"[SPECIAL] Не вдалося відтворити: {e}")
@@ -1543,8 +1544,8 @@ class CloudBellApp:
                     
                     # Транслюємо звук тривоги в хмару
                     if self.cloud_streamer.is_streaming:
-                        filename = os.path.basename(self.alert_sounds_cfg[sound_type])
-                        self.cloud_streamer.send_sound_event(filename, sound_type)
+                        path = self.alert_sounds_cfg[sound_type]
+                        self.cloud_streamer.send_sound_event(path, sound_type)
                         
                 except Exception as e:
                     logging.error(f"[ALARM_SOUND] {e}")
