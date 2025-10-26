@@ -480,7 +480,7 @@ http_server = None
 http_server_port = 8765
 ngrok_url = None
 ngrok_process = None
-audio_buffer = queue.Queue(maxsize=10)  # Буфер для потокового аудіо (максимум 10 файлів)
+audio_buffer = queue.Queue(maxsize=100)  # Буфер для потокового аудіо (максимум 100 чанків)
 audio_capture_stream = None  # Поток захоплення аудіо
 
 def audio_capture_callback(indata, frames, time_info, status):
@@ -571,14 +571,21 @@ def stop_audio_capture():
         except Exception as e:
             logging.error(f"[AUDIO_CAPTURE] Помилка зупинки: {e}")
 
+_dropped_count = 0
+
 def send_audio_to_stream(audio_data: bytes):
     """Додає аудіо дані до потокового буфера"""
-    global audio_buffer
+    global audio_buffer, _dropped_count
     try:
         audio_buffer.put(audio_data, block=False)
-        logging.info(f"[STREAM] Додано до буфера: {len(audio_data)} байт")
+        if _dropped_count > 0:
+            logging.warning(f"[STREAM] Пропущено {_dropped_count} чанків через переповнення буфера")
+            _dropped_count = 0
     except queue.Full:
-        logging.warning("[STREAM] Буфер переповнений")
+        _dropped_count += 1
+        # Логуємо тільки кожні 100 пропущених чанків
+        if _dropped_count % 100 == 0:
+            logging.warning(f"[STREAM] Буфер переповнений ({_dropped_count} чанків пропущено)")
         pass  # Буфер переповнений, пропускаємо
 
 def start_http_server():
