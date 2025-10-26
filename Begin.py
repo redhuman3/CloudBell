@@ -573,9 +573,9 @@ def start_http_server():
         
         logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
         
-        # Запускаємо захоплення аудіо
-        if AUDIO_CAPTURE_AVAILABLE:
-            start_audio_capture()
+        # Запускаємо захоплення аудіо (вимкнено, використовуємо файли)
+        # if AUDIO_CAPTURE_AVAILABLE:
+        #     start_audio_capture()
         
         # Спроба запустити ngrok для публічного доступу
         try:
@@ -640,8 +640,8 @@ def stop_http_server():
         except:
             pass
     
-    # Зупиняємо захоплення аудіо
-    stop_audio_capture()
+    # Зупиняємо захоплення аудіо (вимкнено)
+    # stop_audio_capture()
 
 class CloudAudioStreamer:
     """
@@ -761,6 +761,9 @@ class CloudAudioStreamer:
             
             # Отримуємо розмір файлу
             file_size = len(audio_data)
+            
+            # Додаємо аудіо до буфера для потокового стріму (незалежно від розміру)
+            send_audio_to_stream(audio_data)
             
             # Перевіряємо розмір файлу (WebSocket має ліміт ~64KB)
             if file_size > 50000:  # 50KB
