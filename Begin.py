@@ -39,6 +39,9 @@ import websockets
 import asyncio
 import threading
 import queue
+import socket
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from urllib.parse import urlparse, parse_qs
 
 def resource_path(rel_path: str) -> str:
     """
@@ -155,6 +158,113 @@ AUDIO_FORMAT = pyaudio.paInt16
 AUDIO_CHANNELS = 1
 AUDIO_RATE = 44100
 
+# HTTP Audio Stream Server
+class AudioStreamHandler(BaseHTTPRequestHandler):
+    """Обробник HTTP запитів для стрімінгу аудіо"""
+    
+    def do_GET(self):
+        try:
+            parsed_path = urlparse(self.path)
+            
+            # CORS заголовки
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+            
+            if parsed_path.path == '/stream':
+                query_params = parse_qs(parsed_path.query)
+                filename = query_params.get('file', [''])[0]
+                
+                if not filename:
+                    self.send_error(400, "Missing file parameter")
+                    return
+                
+                # Шукаємо файл
+                file_path = self.find_audio_file(filename)
+                
+                if not file_path or not os.path.exists(file_path):
+                    self.send_error(404, "File not found")
+                    return
+                
+                try:
+                    with open(file_path, 'rb') as f:
+                        audio_data = f.read()
+                    
+                    mime_type = self.get_mime_type(filename)
+                    
+                    self.send_response(200)
+                    self.send_header('Content-Type', mime_type)
+                    self.send_header('Content-Length', str(len(audio_data)))
+                    self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                    self.end_headers()
+                    self.wfile.write(audio_data)
+                    
+                except Exception as e:
+                    self.send_error(500, str(e))
+            else:
+                self.send_error(404, "Not Found")
+                
+        except Exception as e:
+            self.send_error(500, str(e))
+    
+    def find_audio_file(self, filename):
+        search_paths = [
+            os.path.join(CONFIG_DIR, filename),
+            os.path.join(os.path.dirname(__file__), filename),
+            filename
+        ]
+        for path in search_paths:
+            if os.path.exists(path):
+                return path
+        return None
+    
+    def get_mime_type(self, filename):
+        ext = os.path.splitext(filename)[1].lower()
+        mime_types = {'.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg'}
+        return mime_types.get(ext, 'audio/mpeg')
+    
+    def log_message(self, format, *args):
+        pass
+
+def get_local_ip():
+    """Отримує локальний IP адресу"""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except:
+        return "localhost"
+
+http_server = None
+http_server_port = 8765
+
+def start_http_server():
+    """Запускає HTTP сервер для аудіо"""
+    global http_server
+    if http_server:
+        return
+    
+    try:
+        server_address = ('0.0.0.0', http_server_port)
+        http_server = HTTPServer(server_address, AudioStreamHandler)
+        
+        def run_server():
+            global http_server
+            try:
+                http_server.serve_forever()
+            except:
+                pass
+        
+        thread = threading.Thread(target=run_server, daemon=True)
+        thread.start()
+        
+        logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
+        
+    except Exception as e:
+        logging.error(f"[HTTP_SERVER] Помилка запуску: {e}")
+
 class CloudAudioStreamer:
     """
     Клас для трансляції звуку в хмару.
@@ -178,16 +288,23 @@ class CloudAudioStreamer:
             self.server_url = server_url or CLOUD_SERVER_URL
             self.is_streaming = True
             
+            # Запускаємо HTTP сервер для аудіо
+            start_http_server()
+            
             # Запускаємо WebSocket клієнт в окремому потоці
             threading.Thread(target=self.websocket_client, 
                            args=(self.server_url,), 
                            daemon=True).start()
             
+            local_ip = get_local_ip()
+            audio_url = f"http://{local_ip}:{http_server_port}"
+            
             logging.info("[CLOUD_AUDIO] Трансляція звуку розпочата")
             messagebox.showinfo(
                 "Трансляція активна",
                 f"Підключено до сервера!\n\n"
-                f"URL: {self.server_url}\n\n"
+                f"WebSocket: {self.server_url}\n"
+                f"HTTP Audio: {audio_url}\n\n"
                 f"Тепер всі звуки дзвінків будуть транслюватися в інтернет."
             )
             return True
@@ -258,7 +375,8 @@ class CloudAudioStreamer:
             if file_size > 50000:  # 50KB
                 logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо URL")
                 # Відправляємо URL для програвання через HTTP
-                audio_url = f"http://localhost:8765/stream?file={os.path.basename(sound_file)}"
+                local_ip = get_local_ip()
+                audio_url = f"http://{local_ip}:{http_server_port}/stream?file={os.path.basename(sound_file)}"
                 message = json.dumps({
                     'type': 'audio_url',
                     'event': event_type,
