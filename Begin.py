@@ -809,6 +809,9 @@ class CloudAudioStreamer:
             # Отримуємо розмір файлу
             file_size = len(audio_data)
             
+            # Додаємо аудіо до буфера для потокового стріму
+            send_audio_to_stream(audio_data)
+            
             # Перевіряємо розмір файлу (WebSocket має ліміт ~64KB)
             if file_size > 50000:  # 50KB
                 logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо URL")
