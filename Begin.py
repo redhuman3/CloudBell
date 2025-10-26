@@ -480,7 +480,7 @@ http_server = None
 http_server_port = 8765
 ngrok_url = None
 ngrok_process = None
-audio_buffer = queue.Queue(maxsize=100)  # Буфер для потокового аудіо (максимум 100 чанків)
+audio_buffer = queue.Queue(maxsize=1000)  # Буфер для потокового аудіо (максимум 1000 чанків)
 audio_capture_stream = None  # Поток захоплення аудіо
 
 def audio_capture_callback(indata, frames, time_info, status):
@@ -578,14 +578,17 @@ def send_audio_to_stream(audio_data: bytes):
     global audio_buffer, _dropped_count
     try:
         audio_buffer.put(audio_data, block=False)
+        buffer_size = audio_buffer.qsize()
         if _dropped_count > 0:
-            logging.warning(f"[STREAM] Пропущено {_dropped_count} чанків через переповнення буфера")
+            logging.warning(f"[STREAM] Пропущено {_dropped_count} чанків, буфер: {buffer_size}/{audio_buffer.maxsize}")
             _dropped_count = 0
+        elif buffer_size > audio_buffer.maxsize * 0.9:  # Логуємо якщо більше 90% заповнено
+            logging.debug(f"[STREAM] Буфер: {buffer_size}/{audio_buffer.maxsize}")
     except queue.Full:
         _dropped_count += 1
         # Логуємо тільки кожні 100 пропущених чанків
         if _dropped_count % 100 == 0:
-            logging.warning(f"[STREAM] Буфер переповнений ({_dropped_count} чанків пропущено)")
+            logging.warning(f"[STREAM] Буфер переповнений ({_dropped_count} чанків пропущено, розмір: {len(audio_data)} байт)")
         pass  # Буфер переповнений, пропускаємо
 
 def start_http_server():
@@ -611,18 +614,17 @@ def start_http_server():
         
         logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
         
-        # Запускаємо захоплення аудіо
-        if AUDIO_CAPTURE_AVAILABLE:
-            # Спочатку виведемо список доступних пристроїв
-            try:
-                devices = sd.query_devices()
-                logging.info("[AUDIO_CAPTURE] Доступні пристрої:")
-                for i, device in enumerate(devices):
-                    if device['max_input_channels'] > 0:
-                        logging.info(f"  {i}: {device['name']} (channels={device['max_input_channels']}, hostapi={device['hostapi']})")
-            except:
-                pass
-            start_audio_capture()
+        # Захоплення аудіо вимкнено - використовуємо лише файли
+        # if AUDIO_CAPTURE_AVAILABLE:
+        #     try:
+        #         devices = sd.query_devices()
+        #         logging.info("[AUDIO_CAPTURE] Доступні пристрої:")
+        #         for i, device in enumerate(devices):
+        #             if device['max_input_channels'] > 0:
+        #                 logging.info(f"  {i}: {device['name']} (channels={device['max_input_channels']}, hostapi={device['hostapi']})")
+        #     except:
+        #         pass
+        #     start_audio_capture()
         
         # Спроба запустити ngrok для публічного доступу
         try:
@@ -687,8 +689,8 @@ def stop_http_server():
         except:
             pass
     
-    # Зупиняємо захоплення аудіо
-    stop_audio_capture()
+    # Зупиняємо захоплення аудіо (вимкнено)
+    # stop_audio_capture()
 
 class CloudAudioStreamer:
     """
