@@ -42,6 +42,8 @@ import queue
 import socket
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
+import io
+import queue
 
 def resource_path(rel_path: str) -> str:
     """
@@ -209,8 +211,55 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
                     self.send_header('Access-Control-Allow-Origin', '*')
                     self.end_headers()
                     self.wfile.write(str(e).encode())
+            elif parsed_path.path == '/live' or parsed_path.path == '/live.m3u':
+                # Потоковий стрім аудіо
+                try:
+                    # Для .m3u файлу (плейлист)
+                    if parsed_path.path == '/live.m3u':
+                        m3u_content = "#EXTM3U\n#EXTINF:-1,CloudBell Live Stream\n/live\n"
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/vnd.apple.mpegurl')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        self.wfile.write(m3u_content.encode('utf-8'))
+                    else:
+                        # Потоковий MP3 стрім
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'audio/mpeg')
+                        self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.send_header('X-Content-Type-Options', 'nosniff')
+                        self.end_headers()
+                        
+                        # Відправляємо тишаву як фонове звучання
+                        silence = b'\xff\xf3\xe4\xc4\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01'
+                        silence = silence * 1024  # Більше тиші
+                        
+                        # Відправляємо 1 секунду тиші на старті
+                        for _ in range(100):
+                            self.wfile.write(silence)
+                            self.wfile.flush()
+                        
+                        # Тепер слухаємо буфер на аудіо
+                        try:
+                            while True:
+                                try:
+                                    # Отримуємо аудіо з буфера (timeout 0.1 секунди)
+                                    audio_chunk = audio_buffer.get(timeout=0.1)
+                                    if audio_chunk:
+                                        self.wfile.write(audio_chunk)
+                                        self.wfile.flush()
+                                except queue.Empty:
+                                    # Буфер порожній, продовжуємо слухати
+                                    pass
+                        except:
+                            # Зв'язок розірвано
+                            pass
+                            
+                except Exception as e:
+                    logging.error(f"Помилка потокового стріму: {e}")
             elif parsed_path.path == '/':
-                # Головна сторінка з інформацією
+                # Головна сторінка з потоковим плеєром
                 html = """
 <!DOCTYPE html>
 <html>
@@ -235,8 +284,10 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
             box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
         }
         h1 { text-align: center; }
+        .player { background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; text-align: center; }
+        audio { width: 100%; }
         .info { background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 20px 0; }
-        .example { background: #000; padding: 10px; border-radius: 5px; margin: 10px 0; }
+        .status { text-align: center; font-size: 18px; margin: 10px 0; }
         a { color: #ffd700; text-decoration: none; }
         a:hover { text-decoration: underline; }
     </style>
@@ -244,24 +295,28 @@ class AudioStreamHandler(BaseHTTPRequestHandler):
 <body>
     <div class="container">
         <h1>🔔 CloudBell Audio Stream</h1>
-        <div class="info">
-            <h3>Як використовувати:</h3>
-            <ol>
-                <li>Слухайте дзвінки на сторінці: <a href="https://raw.githubusercontent.com/redhuman3/CloudBell/main/cloudbell_audio.html" target="_blank">cloudbell_audio.html</a></li>
-                <li>Або відкрийте аудіо напряму через URL:</li>
-            </ol>
+        <div class="player">
+            <div class="status">📻 Прямий ефір дзвінків</div>
+            <audio id="streamPlayer" controls autoplay>
+                <source src="/live" type="audio/mpeg">
+                Ваш браузер не підтримує аудіо поток.
+            </audio>
+            <div style="margin-top: 10px; font-size: 14px;">
+                <a href="/live.m3u">Відкрити в плеєрі</a> | 
+                <a href="/live">MP3 URL</a>
+            </div>
         </div>
-        <div class="example">
-            <strong>Формат URL для аудіо файлів:</strong><br>
-            https://ваш-ngrok-url.ngrok-free.app/stream?file=bell_start.mp3<br><br>
-            
-            <strong>Доступні файли:</strong><br>
-            <a href="/stream?file=bell_start.mp3">bell_start.mp3</a><br>
-            <a href="/stream?file=bell_end.mp3">bell_end.mp3</a><br>
-            <a href="/stream?file=air_alert.mp3">air_alert.mp3</a><br>
-            <a href="/stream?file=air_clear.mp3">air_clear.mp3</a><br>
+        <div class="info">
+            <h3>📱 Для телефону:</h3>
+            <p>Відкрийте <a href="https://raw.githubusercontent.com/redhuman3/CloudBell/main/cloudbell_audio.html" target="_blank">cloudbell_audio.html</a> для автоматичного відтворення дзвінків</p>
         </div>
     </div>
+    <script>
+        const audio = document.getElementById('streamPlayer');
+        audio.addEventListener('error', function() {
+            console.log('Помилка завантаження потоку');
+        });
+    </script>
 </body>
 </html>
                 """
@@ -328,6 +383,15 @@ http_server = None
 http_server_port = 8765
 ngrok_url = None
 ngrok_process = None
+audio_buffer = queue.Queue()  # Буфер для потокового аудіо
+
+def send_audio_to_stream(audio_data: bytes):
+    """Додає аудіо дані до потокового буфера"""
+    global audio_buffer
+    try:
+        audio_buffer.put(audio_data, block=False)
+    except:
+        pass  # Буфер переповнений, пропускаємо
 
 def start_http_server():
     """Запускає HTTP сервер для аудіо"""
@@ -524,6 +588,9 @@ class CloudAudioStreamer:
             # Читаємо файл
             with open(sound_path, 'rb') as f:
                 audio_data = f.read()
+            
+            # Додаємо аудіо до потокового буфера
+            send_audio_to_stream(audio_data)
             
             # Отримуємо розмір файлу
             file_size = len(audio_data)
