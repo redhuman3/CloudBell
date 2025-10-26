@@ -239,10 +239,12 @@ def get_local_ip():
 
 http_server = None
 http_server_port = 8765
+ngrok_url = None
+ngrok_process = None
 
 def start_http_server():
     """Запускає HTTP сервер для аудіо"""
-    global http_server
+    global http_server, ngrok_process, ngrok_url
     if http_server:
         return
     
@@ -262,8 +264,63 @@ def start_http_server():
         
         logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
         
+        # Спроба запустити ngrok для публічного доступу
+        try:
+            import subprocess
+            # Перевіряємо чи є ngrok
+            result = subprocess.run(['ngrok', 'version'], capture_output=True, text=True)
+            if result.returncode == 0:
+                # Запускаємо ngrok в окремому процесі
+                ngrok_process = subprocess.Popen(
+                    ['ngrok', 'http', str(http_server_port)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+                )
+                
+                # Даємо час на запуск
+                time.sleep(2)
+                
+                # Отримуємо публічний URL
+                try:
+                    import requests
+                    response = requests.get('http://localhost:4040/api/tunnels', timeout=2)
+                    if response.status_code == 200:
+                        tunnels = response.json().get('tunnels', [])
+                        if tunnels:
+                            ngrok_url = tunnels[0]['public_url']
+                            logging.info(f"[NGROK] Публічний URL: {ngrok_url}")
+                        else:
+                            logging.warning("[NGROK] Туннелі не знайдено")
+                except Exception as e:
+                    logging.warning(f"[NGROK] Не вдалося отримати URL: {e}")
+            else:
+                logging.info("[NGROK] ngrok не встановлено, використовується локальна мережа")
+        except FileNotFoundError:
+            logging.info("[NGROK] ngrok не знайдено, використовується локальна мережа")
+        except Exception as e:
+            logging.warning(f"[NGROK] Помилка: {e}")
+        
     except Exception as e:
         logging.error(f"[HTTP_SERVER] Помилка запуску: {e}")
+
+def stop_http_server():
+    """Зупиняє HTTP сервер і ngrok"""
+    global http_server, ngrok_process, ngrok_url
+    if http_server:
+        try:
+            http_server.shutdown()
+            http_server = None
+        except:
+            pass
+    
+    if ngrok_process:
+        try:
+            ngrok_process.terminate()
+            ngrok_process = None
+            ngrok_url = None
+        except:
+            pass
 
 class CloudAudioStreamer:
     """
@@ -296,16 +353,21 @@ class CloudAudioStreamer:
                            args=(self.server_url,), 
                            daemon=True).start()
             
-            local_ip = get_local_ip()
-            audio_url = f"http://{local_ip}:{http_server_port}"
+            # Формуємо URL для аудіо
+            if ngrok_url:
+                audio_url = f"{ngrok_url}"
+            else:
+                local_ip = get_local_ip()
+                audio_url = f"http://{local_ip}:{http_server_port}"
             
             logging.info("[CLOUD_AUDIO] Трансляція звуку розпочата")
             messagebox.showinfo(
                 "Трансляція активна",
                 f"Підключено до сервера!\n\n"
                 f"WebSocket: {self.server_url}\n"
-                f"HTTP Audio: {audio_url}\n\n"
-                f"Тепер всі звуки дзвінків будуть транслюватися в інтернет."
+                f"HTTP Audio: {audio_url}\n"
+                f"{'✅ Ngrok активний - доступно в інтернеті!' if ngrok_url else '⚠️ Локальна мережа - лише в межах WiFi'}\n\n"
+                f"Тепер всі звуки дзвінків будуть транслюватися."
             )
             return True
             
@@ -329,6 +391,9 @@ class CloudAudioStreamer:
                 asyncio.run(self.websocket.close())
             except:
                 pass
+        
+        # Зупиняємо HTTP сервер і ngrok
+        stop_http_server()
             
         logging.info("[CLOUD_AUDIO] Трансляція звуку зупинена")
     
@@ -375,8 +440,12 @@ class CloudAudioStreamer:
             if file_size > 50000:  # 50KB
                 logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо URL")
                 # Відправляємо URL для програвання через HTTP
-                local_ip = get_local_ip()
-                audio_url = f"http://{local_ip}:{http_server_port}/stream?file={os.path.basename(sound_file)}"
+                # Використовуємо ngrok URL якщо він доступний, інакше локальний IP
+                if ngrok_url:
+                    audio_url = f"{ngrok_url}/stream?file={os.path.basename(sound_file)}"
+                else:
+                    local_ip = get_local_ip()
+                    audio_url = f"http://{local_ip}:{http_server_port}/stream?file={os.path.basename(sound_file)}"
                 message = json.dumps({
                     'type': 'audio_url',
                     'event': event_type,
