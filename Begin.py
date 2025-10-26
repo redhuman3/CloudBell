@@ -251,17 +251,31 @@ class CloudAudioStreamer:
             with open(sound_path, 'rb') as f:
                 audio_data = f.read()
             
-            # Кодуємо в base64
-            encoded_audio = base64.b64encode(audio_data).decode()
+            # Отримуємо розмір файлу
+            file_size = len(audio_data)
             
-            # Відправляємо на сервер
-            message = json.dumps({
-                'type': 'audio_stream',
-                'event': event_type,
-                'file': os.path.basename(sound_file),
-                'data': encoded_audio,
-                'timestamp': datetime.datetime.now().isoformat()
-            })
+            # Перевіряємо розмір файлу (WebSocket має ліміт ~64KB)
+            if file_size > 50000:  # 50KB
+                logging.warning(f"[CLOUD_AUDIO] Файл занадто великий ({file_size} bytes), відправляємо лише назву")
+                # Відправляємо лише назву файлу
+                message = json.dumps({
+                    'type': 'audio_event',
+                    'event': event_type,
+                    'file': os.path.basename(sound_file),
+                    'timestamp': datetime.datetime.now().isoformat()
+                })
+            else:
+                # Кодуємо в base64
+                encoded_audio = base64.b64encode(audio_data).decode()
+                
+                # Відправляємо на сервер
+                message = json.dumps({
+                    'type': 'audio_stream',
+                    'event': event_type,
+                    'file': os.path.basename(sound_file),
+                    'data': encoded_audio,
+                    'timestamp': datetime.datetime.now().isoformat()
+                })
             
             # Створюємо новий event loop в окремому потоці
             def send_in_thread():
