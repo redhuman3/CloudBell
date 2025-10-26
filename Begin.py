@@ -485,7 +485,7 @@ def audio_capture_callback(indata, frames, time_info, status):
         logging.error(f"[AUDIO_CAPTURE] Помилка: {e}")
 
 def start_audio_capture():
-    """Запускає захоплення аудіо з вихідного пристрою"""
+    """Запускає захоплення аудіо з вихідного пристрою через WASAPI loopback"""
     global audio_capture_stream
     
     if not AUDIO_CAPTURE_AVAILABLE:
@@ -493,27 +493,43 @@ def start_audio_capture():
         return False
     
     try:
-        # Знаходимо loopback пристрій (Stereo Mix або аналог)
+        # На Windows використовуємо WASAPI loopback для захоплення з динаміків
         devices = sd.query_devices()
         device_id = None
         
+        # Шукаємо WASAPI loopback пристрій
         for i, device in enumerate(devices):
-            # Шукаємо default output device або loopback
-            if device['max_input_channels'] > 0 and 'mix' in device['name'].lower():
+            # WASAPI loopback показується як input device
+            if 'wasapi' in device['hostapi'].lower() and device['max_input_channels'] > 0:
+                # Це loopback пристрій
                 device_id = i
-                logging.info(f"[AUDIO_CAPTURE] Знайдено loopback: {device['name']}")
+                logging.info(f"[AUDIO_CAPTURE] Знайдено WASAPI loopback: {device['name']}")
                 break
         
         if device_id is None:
-            # Використовуємо default output device
-            device_id = sd.default.device[1]  # Output device
-            logging.info(f"[AUDIO_CAPTURE] Використовується default output: {devices[device_id]['name']}")
+            # Якщо не знайдено WASAPI, пробуємо знайти будь-який input з loopback
+            for i, device in enumerate(devices):
+                if device['max_input_channels'] >= 2:
+                    # Пробуємо використати як loopback
+                    try:
+                        # Тестуємо чи це loopback
+                        test_stream = sd.InputStream(device=i, channels=2, samplerate=44100)
+                        test_stream.stop()
+                        test_stream.close()
+                        device_id = i
+                        logging.info(f"[AUDIO_CAPTURE] Знайдено loopback пристрій: {device['name']}")
+                        break
+                    except:
+                        continue
         
-        # Запускаємо захоплення
-        # Використовуємо моноканал (1) для сумісності
+        if device_id is None:
+            logging.error("[AUDIO_CAPTURE] Не вдалося знайти loopback пристрій")
+            return False
+        
+        # Запускаємо захоплення стерео
         audio_capture_stream = sd.InputStream(
             device=device_id,
-            channels=1,
+            channels=2,  # Стерео
             samplerate=44100,
             dtype='float32',
             callback=audio_capture_callback,
@@ -526,6 +542,8 @@ def start_audio_capture():
         
     except Exception as e:
         logging.error(f"[AUDIO_CAPTURE] Помилка запуску: {e}")
+        import traceback
+        logging.debug(traceback.format_exc())
         return False
 
 def stop_audio_capture():
@@ -573,9 +591,18 @@ def start_http_server():
         
         logging.info(f"[HTTP_SERVER] Запущено на http://{get_local_ip()}:{http_server_port}")
         
-        # Запускаємо захоплення аудіо (вимкнено, використовуємо файли)
-        # if AUDIO_CAPTURE_AVAILABLE:
-        #     start_audio_capture()
+        # Запускаємо захоплення аудіо
+        if AUDIO_CAPTURE_AVAILABLE:
+            # Спочатку виведемо список доступних пристроїв
+            try:
+                devices = sd.query_devices()
+                logging.info("[AUDIO_CAPTURE] Доступні пристрої:")
+                for i, device in enumerate(devices):
+                    if device['max_input_channels'] > 0:
+                        logging.info(f"  {i}: {device['name']} (channels={device['max_input_channels']}, hostapi={device['hostapi']})")
+            except:
+                pass
+            start_audio_capture()
         
         # Спроба запустити ngrok для публічного доступу
         try:
@@ -640,8 +667,8 @@ def stop_http_server():
         except:
             pass
     
-    # Зупиняємо захоплення аудіо (вимкнено)
-    # stop_audio_capture()
+    # Зупиняємо захоплення аудіо
+    stop_audio_capture()
 
 class CloudAudioStreamer:
     """
@@ -761,9 +788,6 @@ class CloudAudioStreamer:
             
             # Отримуємо розмір файлу
             file_size = len(audio_data)
-            
-            # Додаємо аудіо до буфера для потокового стріму (незалежно від розміру)
-            send_audio_to_stream(audio_data)
             
             # Перевіряємо розмір файлу (WebSocket має ліміт ~64KB)
             if file_size > 50000:  # 50KB
